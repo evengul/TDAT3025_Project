@@ -18,13 +18,16 @@ class TrainedModel:
         if torch.cuda.is_available():
             self.model.to('cuda')
 
-    def run(self, personal, imageName ):
+    def run(self, personal, isMatrix, imageName="", matrix=torch.zeros((224, 224, 3))):
         if personal:
             self.filename = "images/personal/" + imageName
         else:
             self.filename = "images/imageNet/" + imageName
 
-        input_image = Image.open(self.filename)
+        input_image = matrix
+        if not isMatrix:
+            input_image = Image.open(self.filename)
+
         preprocess = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
@@ -48,7 +51,6 @@ class TrainedModel:
         probabilities = torch.nn.functional.softmax(output[0], dim=0)
         classification = torch.argmax(probabilities).item()
         return classification, probabilities[classification]
-
 
 
 class AML:
@@ -82,9 +84,10 @@ class AML:
         print()
 
     # Run model on image
+    # compare actual output from google model with ours
     def run(self):
         print()
 
 
 model = AML(None, None, None, None, None, 0.1)
-print(model.internal_model.run(True, "dog.jpg"))
+print(model.internal_model.run(True, False, "dog.jpg"))
