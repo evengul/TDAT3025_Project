@@ -3,4 +3,3 @@
 /.idea/**/*.*
 images/imagenet
 *.jpg
-labels.json
