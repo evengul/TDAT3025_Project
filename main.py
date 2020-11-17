@@ -1,4 +1,6 @@
-from PIL import Image
+import glob
+
+from PIL import Image, ImageDraw
 import json
 import numpy as np
 import os
@@ -6,8 +8,11 @@ import random
 import torch
 from torchvision import transforms
 
+import time
+
 from PersonalImage import PersonalImage
 from TrainedModel import TrainedModel
+from Noise import Noise
 
 '''
 Retrieve the image to be classified from a file path
@@ -39,38 +44,50 @@ The class containing methods to create and run the adversarial model.
 
 
 class AML:
-    def __init__(self, x_paths_train, x_paths_test, orthogonal_directions, learning_rate, eps, kernel_size):
+    def __init__(self, x_paths_train, x_paths_test, orthogonal_directions, learning_rate, kernel_size, noise_path=None):
         self.internal_model = TrainedModel()
         self.x_paths_train = x_paths_train
         self.x_paths_test = x_paths_test
         self.Q = orthogonal_directions
         self.learning_rate = learning_rate
-        self.eps = eps
-        self.noise = torch.tensor(np.ones((kernel_size, kernel_size, 3, int(224 / kernel_size), int(224 / kernel_size)))).type(torch.FloatTensor)
+        if noise_path is None:
+            self.noise = Noise(kernel_size, 3, 224, None)
+            if torch.cuda.is_available():
+                self.noise.switch_device('cuda')
+
+        self.softmax = torch.nn.Softmax()
 
     # Predictor
     def f(self, x, c_0, p_0):
         c_1, p_1 = c_0, p_0
-        for i in range(len(self.noise)):
-            for j in range(len(self.noise[i])):
+        allIs = list(range(len(self.noise.noise)))
+        # Possible: Create q of l x l. Add this to noise for each l. Keep it if its good
+        flipped = True
+        for i in allIs:
+            for j in allIs:
                 q = random.choice(self.Q)  # Choose a vector to create the difference along (R, G or B)
                 # For every direction on this vector, with the size of the learning rate
                 for a in [self.learning_rate, -self.learning_rate]:
                     # Get the new probability of the direction along the chosen vector
                     # CHANGE NOISE
-                    self.noise[i][j][0] += a * q[0]
-                    self.noise[i][j][1] += a * q[1]
-                    self.noise[i][j][2] += a * q[2]
-                    x += self.noise.reshape(3, 224, 224)
+                    self.noise.noise[i][j][0] += a * q[0]
+                    self.noise.noise[i][j][1] += a * q[1]
+                    self.noise.noise[i][j][2] += a * q[2]
+                    x += self.noise.to_image_tensor('cuda')
                     c_1, p_1 = self.internal_model.run(x)
                     # If we have a lower probability of getting the class we want, we go this way.
-                    # Otherwise, try the other way on this vector. If that doesn't work, we choose a new random vector
-                    if p_1.item() < p_0.item() or c_1 != c_0:
+                    # Otherwise, try the other way on this vector.
+                    # If that doesn't work, we choose a new random vector
+                    if flipped and p_1.item() > p_0.item():
+                        break
+                    if c_1 != c_0:
+                        flipped = True
                         break
                     else:
-                        self.noise[i][j][0] -= a * q[0]
-                        self.noise[i][j][1] -= a * q[1]
-                        self.noise[i][j][2] -= a * q[2]
+                        self.noise.noise[i][j][0] -= a * q[0]
+                        self.noise.noise[i][j][1] -= a * q[1]
+                        self.noise.noise[i][j][2] -= a * q[2]
+                self.noise.noise = torch.nn.Tanh()(self.noise.noise)
         return c_1, p_1
 
     # Accuracy - TODO: Make it take smaller changes in percentage into account?
@@ -83,7 +100,7 @@ class AML:
                 print("%.2f percent done. Accuracy: %.2f percent" % ((i / total) * 100, ((correct / i) * 100)))
             i += 1
             img = get_x(path)
-            c0, p0, c1, p1 = self.apply_changes(img)
+            c0, p0, c1, p1, x = self.apply_changes(img, 0.007)
             if c0 != c1:
                 correct += 1.0
         return correct / total
@@ -95,20 +112,50 @@ class AML:
     # Train AML model
     def train(self, n_runs=50, n_img=500):
         i = 0
-        for file_path in self.x_paths_train[0:n_img]:
-            if i % 10 == 0:
-                print("img #%i: %.2f percent done training..." % (i, (i / n_img) * 100))
-            i += 1
-            x = get_x(file_path)
-            c0, p0 = self.internal_model.run(x)  # this is our y
-            for n in range(n_runs):
-                c1, _ = self.f(x, c0, p0)
-                if c1 != c0:
-                    break
+        files = random.sample(self.x_paths_train.tolist(), n_img)
+        # files = self.x_paths_train[0: n_img]
+        probs = torch.zeros((len(files), n_runs, 2))
 
-    def save_changed_img(self, img, name):
-        x = img + self.noise.reshape(3, 224, 224) * self.eps
-        get_image(x).save("result_" + name)
+        start_time = time.time()
+
+        previous_time = start_time
+
+        per_round = 0
+        estimated_time = 0
+
+        for file_path in files:
+            x = get_x(file_path)
+            if torch.cuda.is_available():
+                x = x.to(device='cuda')
+            c0, p0 = self.internal_model.run(x)  # this is our y
+            for j in range(n_runs):
+                c1, p1 = self.f(x, c0, p0)
+                probs[i, j] = torch.tensor([j, p1])
+            if i % 10 == 0 and i != 0:
+                print("img #%i: %.2f percent done training..." % (i, (i / n_img) * 100))
+                seconds = int(estimated_time - i * per_round)
+                minutes = 0
+                hours = 0
+                if seconds >= 60:
+                    minutes = int(seconds / 60)
+                    seconds = seconds - 60 * minutes
+                if minutes >= 60:
+                    hours = int(minutes / 60)
+                    minutes = minutes - 60 * hours
+                print("Time left: %ih,%im,%is" % (hours, minutes, seconds))
+            i += 1
+            if i == 1:
+                per_round = time.time() - previous_time
+                estimated_time = per_round * n_img
+                print("Estimated time: " + str(int(estimated_time)) + "seconds")
+                previous_time = time.time()
+        return probs
+
+    def save_changed_img(self, img, name, eps, c, p):
+        img = get_image(img)
+        d = ImageDraw.Draw(img)
+        d.text((10, 10), "eps=%.4f, class=%s, p=%.2f percent" % (eps, c, p * 100), fill=(255, 0, 0))
+        img.save("images/after_noise/week3/result_" + name)
 
     # Test model on another dataset
     def test(self):
@@ -116,11 +163,12 @@ class AML:
 
     # Run model on image
     # compare actual output from google model with ours
-    def apply_changes(self, x):
+    def apply_changes(self, x, eps):
         c_0, p_0 = self.internal_model.run(x)
-        x = x + self.noise.reshape(3, 224, 224) * self.eps
+        change = self.noise.to_image_tensor('cpu') * eps
+        x = (x + change).clamp(0, 1)
         c_1, p_1 = self.internal_model.run(x)
-        return c_0, p_0, c_1, p_1
+        return c_0, p_0, c_1, p_1, x
 
 
 def load_labels():
@@ -148,29 +196,65 @@ def retrieve_test_paths():
 
 
 Q = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-model = AML(retrieve_train_paths(), retrieve_test_paths(), Q, 0.01, 1, 7)
+if torch.cuda.is_available():
+    Q = Q.to(device='cuda')
 
 
-def run_personal(path):
+model = AML(retrieve_train_paths(), retrieve_test_paths(), Q, 0.1, 7)
+
+
+def run_personal(path, eps):
     img_obj = PersonalImage(path)
-    c_true, p_true, c_adv, p_adv = model.apply_changes(img_obj.x)
+    x = img_obj.x.cpu()
+    c_true, p_true, c_adv, p_adv, x = model.apply_changes(x, eps)
     labels = load_labels()
+    print("eps=%.4f" % eps)
     print(
         "Original: class '" + labels[str(c_true)] + "' with " + "{:.3f}".format(p_true.item() * 100) + "% probability")
     print(
         "After AML: class '" + labels[str(c_adv)] + "' with " + "{:.3f}".format(p_adv.item() * 100) + "% probability")
-    model.save_changed_img(img_obj.x, path.split("/")[-1])
+    model.save_changed_img(x.cpu(), path.split("/")[-1].split(".")[0] + "_eps_%.4f.jpg" % eps,
+                           eps, labels[str(c_adv)], p_adv)
+    print("-----------------")
 
 
-# x = get_x("images/imagenet/test/images/test_114.JPEG")
-# new_img, _, c, p = model.f(x, 0)
-# print()
-model.train(n_runs=10, n_img=100)
+def make_gif(name):
+    out_path = "images/gifs/%s.gif" % name
+    files = os.listdir("images/after_noise/week3")
+    files.reverse()
+    img, *images = [Image.open("images/after_noise/week3/" + f) for f in files]
+    img.save(fp=out_path, format="GIF", append_images=images, save_all=True, duration=500, loop=0)
 
-transforms.ToPILImage(mode='RGB')(model.noise.reshape(3, 224, 224)).save('noise.png')
 
-# model.accuracy()
-run_personal("images/imagenet/test/images/test_12.JPEG")
-run_personal("images/personal/dog.jpg")
+BEST_TRAIN_PROB = 0.9974
+BEST_TRAIN_INDEX = 54898
+
+probs = model.train(n_runs=10, n_img=10)
+
+model.noise.save_noise_image('RGB')
+
+hourglassPath = model.x_paths_train[BEST_TRAIN_INDEX]
+
+for eps in range(1, 10):
+    eps = eps / 10000
+    run_personal("images/personal/dog.jpg", eps)
+    run_personal(hourglassPath, eps)
+
+for eps in range(1, 10):
+    eps = eps / 1000
+    run_personal("images/personal/dog.jpg", eps)
+    run_personal(hourglassPath, eps)
+
+for eps in range(1, 10):
+    eps = eps / 100
+    run_personal("images/personal/dog.jpg", eps)
+    run_personal(hourglassPath, eps)
+
+for eps in range(1, 10):
+    eps = eps / 10
+    run_personal("images/personal/dog.jpg", eps)
+    run_personal(hourglassPath, eps)
+
+make_gif("week3")
 
 # print(model.accuracy())

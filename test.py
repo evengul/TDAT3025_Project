@@ -1,32 +1,26 @@
-import matplotlib
-import numpy as np
 import torch
-from PIL import Image
 from torchvision import transforms
-import matplotlib.pyplot as plt
+import numpy as np
 
-transt = transforms.ToTensor()
-transp = transforms.ToPILImage()
-img_t = transt(Image.open('images/personal/dog.jpg'))
+noise = torch.zeros((7, 7, 3, 32, 32))
 
-#torch.Tensor.unfold(dimension, size, step)
-#slices the images into 8*8 size patches
-patches = img_t.data.unfold(0, 3, 3).unfold(1, 16, 16).unfold(2, 16, 16)
+for i in range(len(noise)):
+    for j in range(len(noise[i])):
+        if (i % 2 == 0 and j % 2 != 0) or (i % 2 != 0 and j % 2 == 0):
+            noise[i][j] = torch.ones((3, 32, 32))
 
+t = transforms.ToPILImage(mode='RGB')
 
-print(patches[0][0][0].shape)
+noise_reshaped = torch.zeros((3, 224, 224))
 
+for i in range(len(noise)):
+    for j in range(len(noise[i])):
+        noise_reshaped[:, i * 32:(i + 1) * 32, j * 32:(j + 1) * 32] = noise[i, j]
 
-def visualize(patches):
-    """Imshow for Tensor."""
-    fig = plt.figure(figsize=(4, 4))
-    for i in range(4):
-        for j in range(4):
-            inp = transp(patches[0][i][j])
-            inp = np.array(inp)
-
-            ax = fig.add_subplot(4, 4, ((i*4)+j)+1, xticks=[], yticks=[])
-            plt.imsave("%i%i_.png" % (i, j), inp)
+noise_reshaped_2 = np.transpose(noise, (2, 0, 3, 1, 4)).reshape((3, 224, -1))
 
 
-visualize(patches)
+t(noise_reshaped).save("something.png")
+t(noise_reshaped_2).save("something2.png")
+
+
