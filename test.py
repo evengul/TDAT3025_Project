@@ -1,26 +1,18 @@
 import torch
-from torchvision import transforms
 import numpy as np
 
-noise = torch.zeros((7, 7, 3, 32, 32))
+noise = torch.load('noise.pt')
 
-for i in range(len(noise)):
-    for j in range(len(noise[i])):
-        if (i % 2 == 0 and j % 2 != 0) or (i % 2 != 0 and j % 2 == 0):
-            noise[i][j] = torch.ones((3, 32, 32))
+print(noise.shape)
 
-t = transforms.ToPILImage(mode='RGB')
+n = 7
 
-noise_reshaped = torch.zeros((3, 224, 224))
+Q = torch.tensor([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]])
 
-for i in range(len(noise)):
-    for j in range(len(noise[i])):
-        noise_reshaped[:, i * 32:(i + 1) * 32, j * 32:(j + 1) * 32] = noise[i, j]
+directions = torch.bucketize(torch.rand((n, n)), torch.tensor([0.33, 0.67, 1]))
 
-noise_reshaped_2 = np.transpose(noise, (2, 0, 3, 1, 4)).reshape((3, 224, -1))
+other_noise =
 
 
-t(noise_reshaped).save("something.png")
-t(noise_reshaped_2).save("something2.png")
 
 
