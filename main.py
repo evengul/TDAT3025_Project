@@ -57,7 +57,7 @@ class AML:
         self.softmax = torch.nn.Softmax()
 
     # Predictor
-    def f(self, x, c_0, p_0, eps=1.):
+    def f(self, x, c_0, p_0):
         c_1, p_1 = c_0, p_0
         allIs = list(range(len(self.noise.noise)))
         # Possible: Create q of l x l. Add this to noise for each l. Keep it if its good
@@ -73,25 +73,23 @@ class AML:
                     possibly_changing_noise[i][j][0] += a * q[0]
                     possibly_changing_noise[i][j][1] += a * q[1]
                     possibly_changing_noise[i][j][2] += a * q[2]
-                    x += self.noise.to_image_tensor('cuda', noise=possibly_changing_noise) * eps
+                    x += self.noise.to_image_tensor('cuda', noise=possibly_changing_noise)
                     c_1, p_1 = self.internal_model.run(x)
                     # If we have a lower probability of getting the class we want, we go this way.
                     # Otherwise, try the other way on this vector.
                     # If that doesn't work, we choose a new random vector
-                    if flipped and p_1.item() > p_0.item():
-                        self.noise.noise = possibly_changing_noise
-                        break
-                    if c_1 != c_0:
-                        self.noise.noise = possibly_changing_noise
+                    if not flipped and c_1 != c_0:
                         flipped = True
+                    if flipped and c_1 != c_0 and p_1.item() > p_0.item():
+                        self.noise.noise = possibly_changing_noise
                         break
-                self.noise.noise = torch.nn.Tanh()(self.noise.noise)
+                self.noise.noise = torch.tanh_(self.noise.noise)
         return c_1, p_1
 
-    # Accuracy - TODO: Make it take smaller changes in percentage into account?
+    # Accuracy
     def accuracy(self, eps):
         print("Checking accuracy...")
-        files = random.sample(self.x_paths_test, 1000)
+        files = self.x_paths_test
         total = len(files) * 1.0
         correct = 0.0
         i = 1
@@ -101,12 +99,12 @@ class AML:
             i += 1
             img = get_x(path)
             c0, p0, c1, p1, x = self.apply_changes(img, eps)
-            if c0 != c1:  # or p1 <= x * p0
+            if c0 != c1 and p1 >= 0.85 * p0 or p1 <= 0.1 * p0:  # or p1 <= x * p0
                 correct += 1.0
         return correct / total
 
     # Train AML model
-    def train(self, n_runs=50, n_img=500, eps=1.):
+    def train(self, n_runs=50, n_img=500):
         i = 0
         # files = random.sample(self.x_paths_train.tolist(), n_img)
         files = self.x_paths_train[0: n_img]
@@ -125,7 +123,7 @@ class AML:
                 x = x.to(device='cuda')
             c0, p0 = self.internal_model.run(x)  # this is our y
             for j in range(n_runs):
-                c1, p1 = self.f(x, c0, p0, eps=eps)
+                c1, p1 = self.f(x, c0, p0)
                 probs[i, j] = torch.tensor([j, p1])
             if i % 10 == 0 and i != 0:
                 print("img #%i: %.2f percent done training..." % (i, (i / n_img) * 100))
@@ -152,10 +150,6 @@ class AML:
         d = ImageDraw.Draw(img)
         d.text((10, 10), "eps=%.4f, class=%s, p=%.2f percent" % (eps, c, p * 100), fill=(255, 0, 0))
         img.save("images/after_noise/week3/result_" + name)
-
-    # Test model on another dataset
-    def test(self):
-        print()
 
     # Run model on image
     # compare actual output from google model with ours
@@ -194,7 +188,7 @@ def retrieve_test_paths():
 def run_personal(path, model, eps):
     img_obj = PersonalImage(path)
     x = img_obj.x.cpu()
-    c_true, p_true, c_adv, p_adv, x = model.apply_changes(x, 1)
+    c_true, p_true, c_adv, p_adv, x = model.apply_changes(x, eps)
     labels = load_labels()
     print("eps=%.4f" % eps)
     print(
@@ -219,21 +213,37 @@ if torch.cuda.is_available():
     Q = Q.to(device='cuda')
 
 
-model = AML(retrieve_train_paths(), retrieve_test_paths(), Q, 0.1, 7)
+model = AML(retrieve_train_paths(), retrieve_test_paths(), Q, 0.1, 14)
 
 BEST_TRAIN_PROB = 0.9974
 BEST_TRAIN_INDEX = 54898
 
-for i in range(10):
-    eps = i / 10
-    probs = model.train(n_runs=10, n_img=50, eps=eps)
-    model.noise.save_noise('RGB')
+EPS = 0.439
 
-    hourglassPath = model.x_paths_train[BEST_TRAIN_INDEX]
+probs = model.train(n_runs=10, n_img=50)
+model.noise.save_noise('RGB')
 
+model.noise.get_stats()
+
+hourglassPath = model.x_paths_train[BEST_TRAIN_INDEX]
+
+for eps in range(1, 10):
+    eps = eps / 10000
     run_personal("images/personal/dog.jpg", model, eps)
     run_personal(hourglassPath, model, eps)
 
-    print(model.accuracy(1))
+for eps in range(1, 10):
+    eps = eps / 1000
+    run_personal("images/personal/dog.jpg", model, eps)
+    run_personal(hourglassPath, model, eps)
 
-BEST_EPS = 0.4
+for eps in range(1, 10):
+    eps = eps / 100
+    run_personal("images/personal/dog.jpg", model, eps)
+    run_personal(hourglassPath, model, eps)
+
+for eps in range(1, 10):
+    eps = eps / 10
+    run_personal("images/personal/dog.jpg", model, eps)
+    run_personal(hourglassPath, model, eps)
+

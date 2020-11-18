@@ -20,7 +20,7 @@ class Noise:
             self.noise = torch.load(init_noise)
         else:
             if image_size % n_rows == 0:
-                self.noise = (torch.zeros((n_rows, n_rows, channels, self.square_size, self.square_size)))
+                self.noise = (torch.rand((n_rows, n_rows, channels, self.square_size, self.square_size))) * 2 - 1
             else:
                 raise ValueError("image_size must be divisible by n_rows!")
 
