@@ -1,4 +1,4 @@
-# TDAT3025_Project
+# TDAT3025 Project by Even Gultvedt and Jørgen Hollum
 This project is the final result of Team 2's work in TDAT3025, NTNU. 
 
 The model contained in the code is a model to make GoogLeNet misclassify images by generating a noise layer to add to the images before they are run through the internal model.
