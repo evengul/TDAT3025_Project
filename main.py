@@ -94,8 +94,8 @@ class AML:
         correct = 0.0
         i = 1
         for path in files:
-            # if i % 100 == 0:
-            #     print("%.2f percent done. Accuracy: %.2f percent" % ((i / total) * 100, ((correct / i) * 100)))
+            if i % 100 == 0:
+                print("%.2f percent done. Accuracy: %.2f percent" % ((i / total) * 100, ((correct / i) * 100)))
             i += 1
             img = get_x(path)
             c0, p0, c1, p1, x = self.apply_changes(img, eps)
@@ -213,17 +213,17 @@ if torch.cuda.is_available():
     Q = Q.to(device='cuda')
 
 
-model = AML(retrieve_train_paths(), retrieve_test_paths(), Q, 0.1, 14)
+model = AML(retrieve_train_paths(), retrieve_test_paths(), Q, 0.1, 7, "noise.pt")
 
 BEST_TRAIN_PROB = 0.9974
 BEST_TRAIN_INDEX = 54898
 
 EPS = 0.439
 
-probs = model.train(n_runs=10, n_img=50)
+# probs = model.train(n_runs=1, n_img=10)
 model.noise.save_noise('RGB')
 
-model.noise.get_stats()
+print(model.accuracy(0.4))
 
 hourglassPath = model.x_paths_train[BEST_TRAIN_INDEX]
 
