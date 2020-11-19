@@ -8,3 +8,5 @@ Then you can run `python3 main.py`which will run the model with the functionalit
 and how many tiles the noise is split into. Higher tile level will drastically increase runtime.
 
 It is also possible to run personal images with the function `run_personal()` to try and misclassify these.
+
+Note: The code has been run on a NVIDIA GPU and will be quite slow an a CPU.
