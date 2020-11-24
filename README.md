@@ -10,3 +10,5 @@ and how many tiles the noise is split into. Higher tile level will drastically i
 It is also possible to run personal images with the function `run_personal()` to try and misclassify these.
 
 Note: The code has been run on a NVIDIA GPU and will be quite slow an a CPU.
+
+Note 2: Method 1.1 referenced in the paper can be found in branch "Method 1.1".
