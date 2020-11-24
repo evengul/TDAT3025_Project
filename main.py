@@ -248,20 +248,16 @@ print(model.accuracy(0.4))
 # for eps in range(1, 10):
 #     eps = eps / 10000
 #     run_personal("images/personal/dog.jpg", model, eps)
-#     run_personal(hourglassPath, model, eps)
 #
 # for eps in range(1, 10):
 #     eps = eps / 1000
 #     run_personal("images/personal/dog.jpg", model, eps)
-#     run_personal(hourglassPath, model, eps)
 #
 # for eps in range(1, 10):
 #     eps = eps / 100
 #     run_personal("images/personal/dog.jpg", model, eps)
-#     run_personal(hourglassPath, model, eps)
 #
 # for eps in range(1, 10):
 #     eps = eps / 10
 #     run_personal("images/personal/dog.jpg", model, eps)
-#     run_personal(hourglassPath, model, eps)
 
